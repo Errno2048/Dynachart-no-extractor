@@ -1,5 +1,6 @@
 from PIL import Image, ImageColor, ImageDraw, ImageFont
 from math import ceil
+import numpy as np
 
 class Note:
     SIDE_LEFT = -1
@@ -15,10 +16,10 @@ class Note:
     COLOR_HOLD_BOARD = (255, 255, 128, 255)
     COLOR_HOLD_FILL = (70, 134, 0, 255)
 
-    WIDTH_NORMAL = 16
-    WIDTH_CHAIN = 8
-    WIDTH_HOLD = 16
-    WIDTH_MIN = 8
+    WIDTH_NORMAL = 40
+    WIDTH_CHAIN = 20
+    WIDTH_HOLD = 40
+    WIDTH_MIN = 20
 
     def __lt__(self, other):
         res = self.start - other.start
@@ -45,28 +46,30 @@ class Note:
         else:
             self.end = max(start, end)
 
-    def generate_image(self, width_per_unit, bar_height):
+    def generate_image(self, width_per_unit, bar_height, scale=1.0):
         fill_color = self.COLOR_NORMAL
         outline_color = None
         width = width_per_unit * self.width
-        height = self.WIDTH_NORMAL
+        height = max(1, round(scale * self.WIDTH_NORMAL))
         line_width = 1
         radius = height / 2
         if self.type == self.NOTE_NORMAL:
             pass
         elif self.type == self.NOTE_CHAIN:
             fill_color = self.COLOR_CHAIN
-            height = self.WIDTH_CHAIN
+            height = max(1, round(scale * self.WIDTH_CHAIN))
             radius = height / 2
         elif self.type == self.NOTE_HOLD:
             fill_color = self.COLOR_HOLD_FILL
             outline_color = self.COLOR_HOLD_BOARD
-            line_width = self.WIDTH_HOLD
-            height = bar_height * (self.end - self.start) + self.WIDTH_HOLD
-            radius = self.WIDTH_HOLD / 2
+            WIDTH_HOLD = max(1, round(scale * self.WIDTH_HOLD))
+            line_width = WIDTH_HOLD
+            height = bar_height * (self.end - self.start) + WIDTH_HOLD
+            radius = max(1, round(scale * self.WIDTH_HOLD / 2))
         width, height, radius = round(width), round(height), round(radius)
-        width = max(width, self.WIDTH_MIN)
-        height = max(height, self.WIDTH_MIN)
+        WIDTH_MIN = max(1, round(scale * self.WIDTH_MIN))
+        width = max(width, WIDTH_MIN)
+        height = max(height, WIDTH_MIN)
         img = Image.new('RGBA', (width, height), color=(0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
         draw.rounded_rectangle([(0, 0), (width, height)], radius, fill_color, outline_color, line_width)
@@ -104,25 +107,28 @@ class Board:
     BOARD_SIZE = 150 # size 1 to pixels
     TIME_SIZE = 2880  # bar size
 
-    SIDE_LINE_WIDTH = 4
-    BOTTOM_LINE_WIDTH = 6
-    BAR_LINE_WIDTH = 2
-    SPLIT_LINE_WIDTH = 8
+    SIDE_LINE_WIDTH = 10
+    BOTTOM_LINE_WIDTH = 15
+    BAR_LINE_WIDTH = 5
+    SEMI_BAR_LINE_WIDTH = 5
+    SPLIT_LINE_WIDTH = 20
 
     BACKGROUND_COLOR = (0, 0, 0, 255)
     LINE_COLOR = (255, 255, 255, 255)
-    BAR_LINE_COLOR = (127, 127, 127, 255)
+    BAR_LINE_COLOR = (255, 255, 255, 255)#(127, 127, 127, 255)
+    SEMI_BAR_LINE_COLOR = (127, 127, 127, 255)
     SPLIT_LINE_COLOR = (255, 255, 255, 255)
 
     FONT_SIZE = 96
     FONT_COLOR = (255, 255, 255, 255)
 
-    def __init__(self, scale=0.5, time_limit: int=32, speed = 0.5, bar_span = 4):
+    def __init__(self, scale=0.5, time_limit: int=32, speed = 0.5, bar_span = 2, semi_bar_span = 1 / 16):
         self.scale = scale
         self.notes = []
         self.time_limit = round(time_limit)
         self.speed = speed
         self.bar_span = bar_span
+        self.semi_bar_span = semi_bar_span
 
     def generate(self, chart: Chart):
         board, args = self.draw_board(chart)
@@ -142,12 +148,16 @@ class Board:
         font = ImageFont.truetype('Fonts/arial.ttf', size=font_size)
 
         page_width, page_height, bar_height, bottom_line_y, side_line_leftside_x, side_line_left_x, side_line_right_x, side_line_rightside_x = args
-        for i in range(self.bar_span, pages * self.time_limit + self.bar_span, self.bar_span):
+        for i in range(0, pages * self.time_limit + self.bar_span, self.bar_span):
             pg = int(i / self.time_limit)
             x = page_width * pg
             y = bottom_line_y - bar_height * self.scale * (i - pg * self.time_limit)
             if i % self.time_limit != 0:
-                draw.line([(x, y), (x + page_width, y)], fill=self.BAR_LINE_COLOR, width=self.BAR_LINE_WIDTH)
+                draw.line([(x, y), (x + page_width, y)], fill=self.BAR_LINE_COLOR, width=max(1, round(self.scale * self.BAR_LINE_WIDTH)))
+            if self.semi_bar_span and self.semi_bar_span > 0:
+                for j in np.arange(self.semi_bar_span, self.bar_span, self.semi_bar_span):
+                    semi_y = y - bar_height * self.scale * j
+                    draw.line([(x, semi_y), (x + page_width, semi_y)], fill=self.SEMI_BAR_LINE_COLOR, width=max(1, round(self.scale * self.SEMI_BAR_LINE_WIDTH)))
             time = round((i / chart.bar_per_min * 60 + chart.time_offset) * 1000)
             h = time // 3600000
             m = (time % 3600000) // 60000
@@ -160,7 +170,7 @@ class Board:
             draw.text((x + side_line_left_x - font_size / 2, y - font_size), text, fill=self.FONT_COLOR, font=font, anchor='rm')
 
         for i in range(1, pages):
-            draw.line([(i * pagew, 0), (i * pagew, pageh)], fill=self.SPLIT_LINE_COLOR, width=self.SPLIT_LINE_WIDTH)
+            draw.line([(i * pagew, 0), (i * pagew, pageh)], fill=self.SPLIT_LINE_COLOR, width=max(1, round(self.scale * self.SPLIT_LINE_WIDTH)))
         return img, args
 
     def draw_page(self):
@@ -190,12 +200,16 @@ class Board:
 
         img = Image.new('RGBA', (page_width, page_height), self.BACKGROUND_COLOR)
         draw = ImageDraw.Draw(img)
-        draw.line([(0, bottom_line_y), (page_width, bottom_line_y)], fill=self.LINE_COLOR, width=self.BOTTOM_LINE_WIDTH)
-        draw.line([(0, page_bottom), (page_width, page_bottom)], fill=self.LINE_COLOR, width=self.BOTTOM_LINE_WIDTH)
-        draw.line([(side_line_leftside_x, page_bottom), (side_line_leftside_x, bottom_line_y)], fill=self.LINE_COLOR, width=self.SIDE_LINE_WIDTH)
-        draw.line([(side_line_left_x, page_bottom), (side_line_left_x, bottom_line_y)], fill=self.LINE_COLOR, width=self.SIDE_LINE_WIDTH)
-        draw.line([(side_line_right_x, page_bottom), (side_line_right_x, bottom_line_y)], fill=self.LINE_COLOR, width=self.SIDE_LINE_WIDTH)
-        draw.line([(side_line_rightside_x, page_bottom), (side_line_rightside_x, bottom_line_y)], fill=self.LINE_COLOR, width=self.SIDE_LINE_WIDTH)
+
+        BOTTOM_LINE_WIDTH = max(1, round(self.scale * self.BOTTOM_LINE_WIDTH))
+        SIDE_LINE_WIDTH = max(1, round(self.scale * self.SIDE_LINE_WIDTH))
+
+        draw.line([(0, bottom_line_y), (page_width, bottom_line_y)], fill=self.LINE_COLOR, width=BOTTOM_LINE_WIDTH)
+        draw.line([(0, page_bottom), (page_width, page_bottom)], fill=self.LINE_COLOR, width=BOTTOM_LINE_WIDTH)
+        draw.line([(side_line_leftside_x, page_bottom), (side_line_leftside_x, bottom_line_y)], fill=self.LINE_COLOR, width=SIDE_LINE_WIDTH)
+        draw.line([(side_line_left_x, page_bottom), (side_line_left_x, bottom_line_y)], fill=self.LINE_COLOR, width=SIDE_LINE_WIDTH)
+        draw.line([(side_line_right_x, page_bottom), (side_line_right_x, bottom_line_y)], fill=self.LINE_COLOR, width=SIDE_LINE_WIDTH)
+        draw.line([(side_line_rightside_x, page_bottom), (side_line_rightside_x, bottom_line_y)], fill=self.LINE_COLOR, width=SIDE_LINE_WIDTH)
 
         return img, (page_width, page_height, bar_height, bottom_line_y, side_line_leftside_x, side_line_left_x, side_line_right_x, side_line_rightside_x)
 
@@ -223,7 +237,7 @@ class Board:
             end_page_number = page_number
             if note.type == Note.NOTE_HOLD:
                 end_page_number = int(note.end / self.time_limit)
-            img = note.generate_image(round(width_per_unit), round(bar_height))
+            img = note.generate_image(round(width_per_unit), round(bar_height), scale=self.scale)
             if page_number == end_page_number:
                 x += page_number * page_width
                 y = bottom_line_y - (note.start - page_number * self.time_limit) * bar_height
